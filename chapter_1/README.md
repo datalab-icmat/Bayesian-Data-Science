@@ -1,4 +1,4 @@
-### Chapter 1. General introduction.
+### Chapter 1. Key concepts through basic models.
 
 This folder contains the material of **Chapter 1. Key concepts through basic models** from "Bayesian Data Science" course held at Datalab-ICMAT. In particular, it includes:
 
