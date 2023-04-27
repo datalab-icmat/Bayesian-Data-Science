@@ -4,9 +4,12 @@ This folder contains the material of **Chapter 1. Key concepts through basic mod
 
 * Slides 
   * clases11d.pdf
+  * clase1234d.pdf
+  * clase15.pdf
   
 * Lab R scripts 
   * MClBlab11.Rmd
+  * MClBlab12.Rmd
 
 * Data
   * data2.txt
