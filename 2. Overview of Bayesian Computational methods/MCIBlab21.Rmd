@@ -1,0 +1,225 @@
+---
+title: "BMLab2.1"
+author: "DataLab CSIC"
+date: " "
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introducción
+
+Comparamos aquí la aproximación numérica en el modelo de regresión logística
+con una aproximación asintótica. Adaptado de Vehtari y Pasaniemi. BDA 3
+
+## Aproximación numérica
+
+Usamos los paquetes ggplot2, gridExtra para gráficos, tidyr 
+para manipular data frames y MASS para algunas funciones estadísticas.
+Si no las habéis instalado debéis hacerlo con install.packages.
+
+```{r , eval=FALSE}
+library(ggplot2)
+library(gridExtra)
+library(tidyr)
+library(MASS)
+```
+
+Cargamos los datos del bioensayo en el data.frame df1
+(x dosis, n ensayos, y muertos)
+
+```{r, eval=FALSE }
+df1 <- data.frame(
+  x = c(-0.86, -0.30, -0.05, 0.73),
+  n = c(5, 5, 5, 5),
+  y = c(0, 1, 3, 5)
+)
+df1
+names(df1)
+df1$x
+```
+Ajustamos primero un modelo glm de regresión logística al bioensayo.
+Desplegamos los coeficientes (el MLE) y luego la matriz hessiana. Usaremos 
+luego esto.
+```{r, eval=FALSE }
+response <- cbind(df1$y, df1$n - df1$y)
+response
+fit <- glm(response ~ df1$x, family = binomial)
+# This is the MLE:
+coef(fit)
+summary(fit)$cov.unscaled
+```
+### Muestreo en una parrila
+Calculamos la densidad a prosteriori (con una a priori plana)
+en una parrilla. Primero definimos una parrilla de 100*100
+y la desplegamos. 
+
+```{r, eval=FALSE }
+A = seq(-1.5, 7, length.out = 100)
+A
+B = seq(-5, 35, length.out = 100)
+B
+# hacemos vectores que contienen los pares A,B
+cA <- rep(A, each = length(B))
+cB <- rep(B, length(A))
+# esta función auxiliar nos ayuda a calcular la logverosimilitud.
+# recuerda el doc del campus virtual 
+logl <- function(df, a, b)
+  df['y']*(a + b*df['x']) - df['n']*log1p(exp(a + b*df['x']))
+# calculamos las verosimilituedes aplicando la funcion logl a cada observacion
+# ie cada fila de x, n, y. luego se suma por filas y se exponencia
+p <- apply(df1, 1, logl, cA, cB) %>% rowSums() %>% exp()
+p
+```
+
+Muestreamos de la parrilla con reemplazamiento 1000 observaciones
+en samp_indices. Después de cara a la representación le
+añadimos un poco de jitter
+
+```{r, eval=FALSE }
+nsamp <- 1000
+samp_indices <- sample(length(p), size = nsamp,
+                       replace = T, prob = p/sum(p))
+samp_A <- cA[samp_indices[1:nsamp]]
+samp_B <- cB[samp_indices[1:nsamp]]
+samp_A
+# añadimos jitter 
+samp_A <- samp_A + runif(nsamp, A[1] - A[2], A[2] - A[1])
+samp_B <- samp_B + runif(nsamp, B[1] - B[2], B[2] - B[1])
+samp_A
+```
+Calculamos una muestra a posteriori de  LD50 (condicionado a que beta sea > 0)
+```{r, eval=FALSE }
+bpi <- samp_B > 0
+samp_ld50 <- -samp_A[bpi]/samp_B[bpi]
+```
+
+Hacemos gráficos 
+
+```{r, eval=FALSE }
+# limites para el grafico
+xl <- c(-1.5, 7)
+yl <- c(-5, 35)
+# figura con ggplot
+pos <- ggplot(data = data.frame(cA ,cB, p), aes(x = cA, y = cB)) +
+  geom_raster(aes(fill = p, alpha = p), interpolate = T) +
+  geom_contour(aes(z = p), colour = 'black', size = 0.2) +
+  coord_cartesian(xlim = xl, ylim = yl) +
+  labs(x = 'alpha', y = 'beta') +
+  scale_fill_gradient(low = 'yellow', high = 'red', guide = F) +
+  scale_alpha(range = c(0, 1), guide = F)
+pos
+```
+
+Mostramos las muestras
+
+```{r, eval=FALSE }
+sam <- ggplot(data = data.frame(samp_A, samp_B)) +
+  geom_point(aes(samp_A, samp_B), color = 'blue', size = 0.3) +
+  coord_cartesian(xlim = xl, ylim = yl) +
+  labs(x = 'alpha', y = 'beta')
+sam
+```
+
+Ahora el histograma del LD50
+
+```{r , eval= FALSE}
+his <- ggplot() +
+  geom_histogram(aes(samp_ld50), binwidth = 0.04,
+                 fill = 'steelblue', color = 'black') +
+  coord_cartesian(xlim = c(-0.8, 0.8)) +
+  labs(x = 'LD50 = -alpha/beta')
+his
+```
+
+### Aproximación normal en el bioensayo.
+
+Consideramos la aproximación normal en el ejemplo anterior.
+Definimos primero la función a optimizar (la log verosimilitud)
+
+```{r, eval = FALSE }
+bioassayfun <- function(w, df) {
+  z <- w[1] + w[2]*df$x
+  -sum(df$y*(z) - df$n*log1p(exp(z)))
+}
+```
+
+Optimizamos con la función optim (lo mismo que hemos hecho con el glm)
+
+```{r , eval = FALSE}
+w0 <- c(0,0)
+optim_res <- optim(w0, bioassayfun, gr = NULL, df1, hessian = T)
+w <- optim_res$par
+S <- solve(optim_res$hessian)
+```
+
+Usamos la densidad de la normal multivariante
+
+```{r, eval=FALSE }
+dmvnorm <- function(x, mu, sig)
+  exp(-0.5*(length(x)*log(2*pi) + log(det(sig)) + (x-mu)%*%solve(sig, x-mu)))
+```
+
+Evaluamos la verosimilitud en los puntos  (cA,cB),
+solo como ilustración 
+
+```{r, eval = FALSE }
+p <- apply(cbind(cA, cB), 1, dmvnorm, w, S)
+# muestreamos de la normal multivariante con media w y matriz cov S  
+normsamp <- mvrnorm(nsamp, w, S)
+```
+
+Muestas de LD50 (conditionada a beta > 0):
+La aproximación normal no tiene en cuenta que la a posteriori 
+no es simétrica y hay una densidad muy pequeña para 
+betas negativos.
+(Con la normal, hay una probabilidad del 5% de que sea negativa)!
+
+```{r , eval=FALSE}
+bpi <- normsamp[,2] > 0
+bpi
+normsamp_ld50 <- -normsamp[bpi,1]/normsamp[bpi,2]
+```
+
+Creamos el plot de la distribución a posteriori 
+
+```{r, eval=FALSE }
+pos_norm <- ggplot(data = data.frame(cA ,cB, p), aes(x = cA, y = cB)) +
+  geom_raster(aes(fill = p, alpha = p), interpolate = T) +
+  geom_contour(aes(z = p), colour = 'black', size = 0.2) +
+  coord_cartesian(xlim = xl, ylim = yl) +
+  labs(x = 'alpha', y = 'beta') +
+  scale_fill_gradient(low = 'yellow', high = 'red', guide = F) +
+  scale_alpha(range = c(0, 1), guide = F)
+pos_norm
+```
+
+Plot de las muestras
+
+```{r, eval= FALSE }
+sam_norm <- ggplot(data = data.frame(samp_A=normsamp[,1], samp_B=normsamp[,2])) +
+  geom_point(aes(samp_A, samp_B), color = 'blue', size = 0.3) +
+  coord_cartesian(xlim = xl, ylim = yl) +
+  labs(x = 'alpha', y = 'beta')
+sam_norm
+```
+
+Plot del histograma de LD50
+
+```{r, eval = FALSE }
+his_norm <- ggplot() +
+  geom_histogram(aes(normsamp_ld50), binwidth = 0.04,
+                 fill = 'steelblue', color = 'black') +
+  coord_cartesian(xlim = c(-0.8, 0.8)) +
+  labs(x = 'LD50 = -alpha/beta, beta > 0')
+his_norm
+```
+
+Combinamos los plots para comparar 
+
+```{r, eval =FALSE }
+grid.arrange(pos, sam, his, pos_norm, sam_norm, his_norm, ncol = 3)
+```
+
