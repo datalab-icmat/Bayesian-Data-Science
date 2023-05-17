@@ -1,0 +1,416 @@
+---
+title: "BMLab3-2. Metropolis-Hastings"
+author: "DataLab CSIC"
+date: " "
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introducción
+
+En este lab estudiamos en detalle ejemplos de algoritmos de Metropolis-Hastings
+
+## Para entender el concepto básico
+
+Este ejemplo sencillo ilustra el concepto básico de MH. Está adaptado de esta entrada
+<https://stephens999.github.io/fiveMinuteStats/MH-examples1.html>.
+Esencialmente queremos muestrear de la distribución exponencial de 
+parámetro 1. Hemos visto como hacerlo en clase y en R tenemos rexp,
+pero imagina que no lo sabes. Intentamos hacerlo mediante el algoritmo de Metropolis
+Hastings. 
+
+Para ello necesitamos ser capaces de evaluar la densidad de interés (target)
+o una función proporcional a la misma. En este caso.
+
+```{r, eval=FALSE }
+target = function(x){
+  if(x<0){
+    return(0)}
+  else {
+    return( exp(-x))
+  }
+}
+```
+Aquí ponemos el algo de MH. 
+
+```{r, eval=FALSE }
+# inicializamos a 0 el vector donde vamos a guardar los valores de la cadena
+x = rep(0,1000)
+# inicializamos arbitrariamente la cadena
+x[1] = 3   
+# este el bucle MH
+for(i in 2:1000){
+  currentx = x[i-1]
+# generamos el candidato con una normal centrada el valor actual.
+# tenemos pues un algoritmo de Metropolis
+  proposedx = currentx + rnorm(1,mean=0,sd=1)
+# calculamos la probabilidad de aceptación. no aparecen las 
+# q's por simetría 
+  A = target(proposedx)/target(currentx) 
+  if(runif(1)<A){
+    # aceptamos con probabilidad min (1,A)
+    x[i] = proposedx       
+  } else {
+    # en otro caso rechazamos
+    x[i] = currentx        
+  }
+}
+```
+Hacemos algunos diagnósticos
+```{r, eval=FALSE }
+hist(x)
+mean(x)
+sd(x)/mean(x)
+#observa la ACF
+acf(x)
+```
+Como en otros casos parametrizamos para un mejor uso y reporducibilidad.
+```{r, eval=FALSE }
+easyMCMC = function(niter, startval, proposalsd){
+  x = rep(0,niter)
+  x[1] = startval     
+  for(i in 2:niter){
+    currentx = x[i-1]
+    proposedx = rnorm(1,mean=currentx,sd=proposalsd) 
+    A = target(proposedx)/target(currentx)
+    if(runif(1)<A){
+      x[i] = proposedx      
+    } else {
+      x[i] = currentx       
+    }
+  }
+  return(x)
+}
+```
+Hacemos 3 ejecuciones y las representamos para ver su parecido.
+```{r, eval=FALSE }
+z1=easyMCMC(1000,3,1)
+z2=easyMCMC(1000,3,1)
+z3=easyMCMC(1000,3,1)
+# tres próximas juntas
+plot(z1,type="l")
+lines(z2,col=2)
+lines(z3,col=3)
+# cinco próximas juntas
+par(mfcol=c(3,1)) 
+maxz=max(c(z1,z2,z3))
+hist(z1,breaks=seq(0,maxz,length=20))
+hist(z2,breaks=seq(0,maxz,length=20))
+hist(z3,breaks=seq(0,maxz,length=20))
+```
+
+# Muestreo de la normal multivariante
+
+Consideramos ahora muestreo de la normal multivariante mediante MH.
+Primero recordamos (para comparar luego)
+el muestreo directo. Cambiamos rho a 0 y mu a (0,0).
+```{r, eval=FALSE }
+library(MASS)
+rho<-0
+Sigma<-matrix(c(1,rho,rho,1),2,2)
+Sigma
+mu<-c(0,0)
+mu
+z1<-mvrnorm(1000,mu,Sigma)
+```
+Ahora el muestreador de Gibbs según el esquema ya visto. Quito los comments del lab anterior.
+```{r, eval=FALSE }
+x_update<-function()
+{ x1<-rnorm(1,mu[1]+rho*(x2-mu[2]),1-rho*rho)  }
+y_update<-function()
+{  x2<-rnorm(1,mu[2]+rho*(x1-mu[1]),1-rho*rho) } 
+iter<-1500
+burnin<-500
+set.seed(1)
+x<-matrix(0,2,iter)
+x2<-rnorm(1,1,1)
+for (i in 1:iter)
+{x1<-x_update()
+x[1,i]<-x1
+x2<-y_update()
+x[2,i]<-x2}
+```
+Aquí ponemos el MH con estructura similar. Como distribución generadora de candidatos
+empleamos una normal centrada en el estado actual y escalada 1/5 de su tamaño,
+esto es $q(\hat {\theta } | \theta )\sim N (\theta , 0.2^2 I)$. Por ser simétrica,
+se cancelan en la probabilidad de aceptación los términos correspondientes.
+```{r, eval=FALSE }
+# parametros iniciales
+iter<-1500
+burnin<-500
+set.seed(1)
+# estructuras de datos
+xmh<-matrix(0,2,iter)
+# inicialización
+xmh[1,1]<-rnorm(1,1,1)
+xmh[2,1]<-rnorm(1,1,1)
+# este el bucle MH
+for(i in 2:1000){
+  currentx = xmh[1,i-1]
+  currenty=xmh[2,i-1]
+# generamos el candidato segun se indico
+  proposedx = rnorm(1,mean=currentx,sd=0.2)
+  proposedy = rnorm(1,mean=currenty,sd=0.2)
+# calculamos la probabilidad de aceptación. no aparecen las 
+# q's por simetría como hemos dicho. aprovechamos la independencia...
+  A =(dnorm(proposedx,0,1)*dnorm(proposedy,0,1))/(dnorm(currentx,0,1)*dnorm(currenty,0,1)) 
+  if(runif(1)<A){
+    # aceptamos con probabilidad min (1,A)
+    xmh[1,i] = proposedx
+    xmh[2,i] = proposedy
+  } else {
+    # en otro caso rechazamos
+    xmh[1,i] = currentx 
+    xmh[2,i] = currenty
+  }
+}
+```
+Finalmente representamos
+```{r, eval=FALSE }
+par(mfrow=c(1,3))
+plot(z1)
+plot(x[1,burnin:iter],x[2,burnin:iter])
+plot(xmh[1,burnin:iter],xmh[2,burnin:iter])
+# Ojo recordad las acfs!!!!
+acf(x[1,burnin:iter])
+acf(xmh[1,burnin:iter])
+```
+
+## Un ejemplo de regresión 
+
+Aquí hacemos un pequeño ejemplo de regresión.,
+adaptando un lab disponible en 
+<https://theoreticalecology.wordpress.com/2010/09/17/metropolis-hastings-mcmc-in-r/>
+Recuerda que este tipo de modelos los pudimos tratar ya con el 
+paquete LearnBayes en un lab anterior del cap 1.
+Empezamos creando los datos (variable $x$ independiente y variable 
+$y$ dependiente). Los representamos después.
+```{r, eval=FALSE }
+trueA = 5
+trueB = 0
+trueSd = 10
+sampleSize = 31
+x =(-(sampleSize-1)/2):((sampleSize-1)/2)
+x
+y = trueA * x + trueB + rnorm(n=sampleSize,mean=0,sd=trueSd)
+plot(x,y, main="Datos")
+```
+Como comparación, benchmark y, además, ajustamos el modelo por MLE
+(mínimos cuadrados)
+con lm 
+```{r, eval=FALSE }
+summary(lm(y~x))
+```
+Ponemos una función que calcula la verosimilitud. Ojo observa
+que estamos poniendo log=T por lo que estamos empleando la 
+log-verosimilitud (y sumamos las log-verosimilitudes que son
+el log del producto).
+```{r, eval=FALSE }
+likelihood = function(param){
+    a = param[1]
+    b = param[2]
+    sd = param[3]
+     pred = a*x + b
+    singlelikelihoods = dnorm(y, mean = pred, sd = sd, log = T)
+    sumll = sum(singlelikelihoods)
+    return(sumll)
+}
+```
+ Aquí se define la distribución a priori (se define su densidad
+ para luego emplearla. De nuevo usamos log=TRUE)
+```{r, eval=FALSE } 
+prior = function(param){
+    a = param[1]
+    b = param[2]
+    sd = param[3]
+    aprior = dunif(a, min=0, max=10, log = T)
+    bprior = dnorm(b, sd = 5, log = T)
+    sdprior = dunif(sd, min=0, max=30, log = T)
+    return(aprior+bprior+sdprior)
+}
+```
+Ahora la suma de la logverosimilitud y la log priori
+(el log numerador de la a posteriori)
+```{r, eval=FALSE }
+posterior = function(param){
+   return (likelihood(param) + prior(param))
+}
+```
+Consideramos ya el algoritmo MH.
+Generamos propuestas de una normal centrada en el estado 
+actual (tri-dimensional) por lo que tenemos simetría,
+ie es un algoritmo de Metroplis.
+```{r, eval=FALSE }
+proposalfunction = function(param){
+    return(rnorm(3,mean = param, sd= c(0.1,0.5,0.3)))
+}
+``` 
+Aquí definimos ya la función que implementa el algo.
+Está parametrizada en la solución inicial y el número 
+de iteraciones. Observa que al calcular la probabilidad
+deshacemos la transformación log.
+```{r, eval=FALSE }
+run_metropolis_MCMC = function(startvalue, iterations){
+    chain = array(dim = c(iterations+1,3))
+    chain[1,] = startvalue
+    for (i in 1:iterations){
+        proposal = proposalfunction(chain[i,])
+         probab = exp(posterior(proposal) - posterior(chain[i,]))
+        if (runif(1) < probab){
+            chain[i+1,] = proposal
+        }else{
+            chain[i+1,] = chain[i,]
+        }
+    }
+    return(chain)
+}
+``` 
+Lanzamos una ejecución, definiendo valores iniciales y 
+número de iteraciones 10000. Las primeras 5000 son de calentamiento
+y evaluamos la tasa de aceptación.
+```{r, eval=FALSE }
+startvalue = c(4,0,10)
+chain = run_metropolis_MCMC(startvalue, 10000)
+burnIn = 5000
+acceptance = 1-mean(duplicated(chain[-(1:burnIn),]))
+acceptance
+```
+Finalmente desplegamos gráficos varios. 
+Ejecutamos todos a la vez.
+```{r, eval=FALSE }
+par(mfrow = c(2,3))
+hist(chain[-(1:burnIn),1],nclass=30, , main="Posterior of a", xlab="True value = red line" )
+abline(v = mean(chain[-(1:burnIn),1]))
+abline(v = trueA, col="red" )
+hist(chain[-(1:burnIn),2],nclass=30, main="Posterior of b", xlab="True value = red line")
+abline(v = mean(chain[-(1:burnIn),2]))
+abline(v = trueB, col="red" )
+hist(chain[-(1:burnIn),3],nclass=30, main="Posterior of sd", xlab="True value = red line")
+abline(v = mean(chain[-(1:burnIn),3]) )
+abline(v = trueSd, col="red" )
+plot(chain[-(1:burnIn),1], type = "l", xlab="True value = red line" , main = "Chain values of a", )
+abline(h = trueA, col="red" )
+plot(chain[-(1:burnIn),2], type = "l", xlab="True value = red line" , main = "Chain values of b", )
+abline(h = trueB, col="red" )
+plot(chain[-(1:burnIn),3], type = "l", xlab="True value = red line" , main = "Chain values of sd", )
+abline(h = trueSd, col="red" )
+```
+
+
+## Regresión de Poisson
+
+Este ejemplo muestra un algo MH para regresión de Poisson
+adaptando un ejemplo de Hoff ch 10.
+Cargamos primero los datos.
+
+```{r, eval=FALSE }
+load("sparrows.RData")  
+sparrows
+plot(sparrows[,1],sparrows[,2])
+fledged<-sparrows[,1] ; age<-sparrows[,2] ; age2<-age^2
+```
+Hacemos una hora representación más pro. Después ajustamos 
+un modelo de regresión de Poisson con glm via MLE. Lo usamos luego,
+pero nos sirve también como referencia.
+```{r, eval=FALSE }
+par(mar=c(3,3,1,1),mgp=c(1.75,.75,0))
+plot(fledged~as.factor(age),range=0,xlab="age",ylab="offspring",
+      col="gray")
+fit.mle<-glm(fledged~age+age2,family="poisson")
+summary(fit.mle)
+```
+Montamos las estructuras de datos que necesitamos.
+```{r, eval=FALSE }
+y<-fledged
+ X<-cbind(rep(1,length(y)),age,age^2)
+yX<-cbind(y,X)
+yX
+colnames(yX)<-c("fledged","intercept","age","age2") 
+yX
+n<-length(y) ; p<-dim(X)[2]
+```
+Definimos los momentos a priori de los parámetros del modelo (betas). Recordad que consideramos una
+normal de media 0 y desviación típica 10. Luego la varianza de los candidatos
+propuestos.
+```{r, eval=FALSE }
+pmn.beta<-rep(0,p)
+psd.beta<-rep(10,p)
+var.prop<- var(log(y+1/2))*solve( t(X)%*%X )
+```
+Inicializamos estructuras, no. de  iteraciones S, estructura de datos 
+donde guardaremos las muestras. ac es un contador para acumular la tasa de 
+aceptación.
+```{r, eval=FALSE }
+beta<-rep(0,p)
+S<-10000
+BETA<-matrix(0,nrow=S,ncol=p)
+ac<-0
+set.seed(1)
+```
+Aquí la normal multivariante de la que muestreamos los betas.
+```{r, eval=FALSE }
+rmvnorm<-function(n,mu,Sigma)
+{ 
+  E<-matrix(rnorm(n*length(mu)),n,length(mu))
+  t(  t(E%*%chol(Sigma)) +c(mu))
+}
+```
+Comienza ya el MH
+```{r, eval=FALSE }
+for(s in 1:S) {
+#proponemos nuevos betas
+beta.p<- t(rmvnorm(1, beta, var.prop ))
+# Aquí calculamos la log probabilidad de aceptación
+# teniendo en cuenta la simetría de la generación de propuestas
+# Importante lo de log!!!
+lhr<- sum(dpois(y,exp(X%*%beta.p),log=T)) -
+      sum(dpois(y,exp(X%*%beta),log=T)) +
+      sum(dnorm(beta.p,pmn.beta,psd.beta,log=T)) -
+      sum(dnorm(beta,pmn.beta,psd.beta,log=T))
+# Aquí aceptamos (y contabilizamos los aceptados)
+if( log(runif(1))< lhr ) { beta<-beta.p ; ac<-ac+1 }
+# Y guardamos el 'nuevo' beta
+BETA[s,]<-beta
+}
+
+
+# Calculamos la tasa de aceptación                   
+cat(ac/S,"\n")
+
+```
+Representamos varios resultados que comentamos viva voce.
+
+```{r, eval=FALSE }
+par(mar=c(2.75,2.75,.5,.5),mgp=c(1.7,.7,0))
+par(mfrow=c(1,3))
+blabs<-c(expression(beta[1]),expression(beta[2]),expression(beta[3]))
+thin<-c(1,(1:1000)*(S/1000))
+j<-3
+# estas dos juntas
+plot(thin,BETA[thin,j],type="l",xlab="iteration",ylab=blabs[j])
+abline(h=mean(BETA[,j]) )
+# la acf full y la acf entresacada
+acf(BETA[,j],ci.col="gray",xlab="lag")
+acf(BETA[thin,j],xlab="lag/10",ci.col="gray")
+```
+Intervalos predictivos para las distintas edades.
+
+```{r, eval=FALSE }
+par(mar=c(2.75,2.75,.5,.5),mgp=c(1.7,.7,0))
+
+Xs<-cbind(rep(1,6),1:6,(1:6)^2) 
+eXB.post<- exp(t(Xs%*%t(BETA )) )
+qE<-apply( eXB.post,2,quantile,probs=c(.025,.5,.975))
+
+plot( c(1,6),range(c(0,qE)),type="n",xlab="age",
+   ylab="number of offspring")
+lines( qE[1,],col="black",lwd=1)
+lines( qE[2,],col="black",lwd=2)
+lines( qE[3,],col="black",lwd=1)
+
+```
+
+

@@ -1,0 +1,250 @@
+---
+title: "BMLab3-1. Gibbs Sampler"
+author: "DataLab CSIC"
+date: " "
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introducción
+
+Aquí estudiamos en detalle el 
+muestreador de Gibbs. Retomamos el último ejemplo
+del Lab anterior. Después hacemos varios de los 
+ejemplos de clases.
+
+
+# Volvemos con nuestro primer muestreador de Gibbs
+
+Consideramos ahora el ejemplo que empleamos para introducir el muestreador de Gibbs,
+el que la conjunta era $\pi (x, y) = \frac{1}{\pi} \exp(-x (1+y)^2)$.
+Queremos calcular $\int \int (x^2 + x*y) \pi (x, y) dx dy$.
+
+
+```{r, eval=FALSE }
+set.seed(1)
+x<-matrix(0,1,1000)
+y<-matrix(0,1,1000)
+x2<-0
+# Aquí comienza el muestreador
+for (i in 1:1000)
+{x1<-rexp(1, 1+x2*x2)
+x[i]<-x1
+x2<-rnorm(1,0,1/sqrt(2*x1))
+y[i]<-x2}
+# Desplegamos los datos recogidos
+mean(x)
+mean(y)
+median(y)
+# Los tres juntos
+par(mfrow=c(1,2))
+hist(x[1,])
+hist(y[1,])
+# Los tres juntis
+par(mfrow=c(1,2))
+acf(x[1,])
+acf(y[1,])
+# Los tres juntos
+par(mfrow=c(1,2))
+plot(x[1,1:10],y[1,1:10],type="o")
+plot(x[1,900:1000],y[1,900:1000],type="o")
+# Aquí ya respondemos a la pregunta que nos habíamos hecho
+z<-x[1,]*x[1,]+x[1,]*y[1,]
+mean(z)
+# Aquí vemos el posible impacto de la transición inicial
+z1<-x[1,800:1000]
+z2<-y[1,800:1000]
+z<-z1*z1+z1*z2
+mean(z)
+1/sqrt(1000-800)*sd(z)
+```
+# Una versión más reutilizable
+Ahora damos una implementación más 'reutilizable'.
+Primero definimos las funciones para la actualización.
+```{r, eval=FALSE }
+x_update<-function()
+{ x1<-rexp(1, 1+x2*x2)  }
+y_update<-function()
+{  x2<-rnorm(1,0,1/sqrt(2*x1))  }
+```
+Ahora el programa principal
+```{r, eval=FALSE }
+x<-matrix(0,1,1000)
+y<-matrix(0,1,1000)
+x2<-0
+# Aquí comienza el muestreador
+for (i in 1:1000)
+{x1<-x_update ()
+x[1,i]<-x1
+x2<-y_update()
+y[1,i]<-x2}
+# Aquí respondemos a la pregunta, considerando las primeras 500 muestras como de transición
+z1<-x[1,500:1000]
+z2<-y[1,500:1000]
+z<-z1*z1+z1*z2
+mean(z)
+```
+# Una versión más paramétrica
+Parametrizamos el número de iteraciones, el número de periodos de transición
+y usamos una única estructura de datos. Inicializamos la primera aleatoriamente
+```{r, eval=FALSE }
+iter<-1000
+burnin<-500
+set.seed(1)
+x<-matrix(0,2,iter)
+x2<-rnorm(1,1,1)
+# Aquí comienza el muestreador
+for (i in 1:iter)
+{x1<-x_update()
+x[1,i]<-x1
+x2<-y_update()
+x[2,i]<-x2}
+# Aquí respondemos a la pregunta, considerando las primeras muestras como de transición 
+z1<-x[1,burnin:iter]
+z2<-x[2,burnin:iter]
+z<-z1*z1+z1*z2
+mean(z)
+1/sqrt(iter-burnin)*sd(z)
+```
+# Una versión con cadenas paralelas
+En ocasiones ejecutaremos varias cadenas en paralelo (típicamente 
+para monitorización, como veremos más adelante). 
+Parametrizamos el número de cadenas chain. Tenemos que usar como 
+estructura de datos array. Inicializamos cada cadena de puntos diferentes.
+Usamos cuatro cadenas.
+```{r, eval=FALSE }
+chains<-3
+iter<-1000
+burnin<-500
+set.seed(1)
+media<-matrix(0,1,chains)
+x<-array(NA,dim=c(2,iter,chains))
+# Aquí comienzan las cadenas. Cada una desde un x2 diferente
+for (j in 1:chains){
+  x2<-rnorm(1,1,10)
+# Aquí comienza el muestreador
+for (i in 1:iter)
+{x1<-x_update() 
+x[1,i,j]<-x1
+x2<-y_update() 
+x[2,i,j]<-x2}
+# Aquí respondemos a la pregunta, considerando las primeras muestras como de transición 
+# correspondiente a la cadena j
+z1<-x[1,burnin:iter,j]
+z2<-x[2,burnin:iter,j]
+z<-z1*z1+z1*z2
+media[j]<-mean(z)
+}
+media
+```
+Para concluir ponemos las primeras iteraciones de las cadenas para entender la 
+idea de convergencia
+```{r, eval=FALSE }
+par(mfrow=c(1,3))
+plot(x[1,1:10,1],x[2,1:10,1],type="o")
+plot(x[1,1:10,2],x[2,1:10,2],type="o")
+plot(x[1,1:10,3],x[2,1:10,3],type="o")
+```
+# Muestreo de la normal multivariante
+Aquí ilustramos cómo muestrear de la normal multivariante mediante Gibbs.
+Primero muestreamos directamente.
+```{r, eval=FALSE }
+library(MASS)
+help(mvrnorm)
+rho<-0.8
+Sigma<-matrix(c(1,rho,rho,1),2,2)
+Sigma
+mu<-c(5,5)
+mu
+z1<-mvrnorm(1000,mu,Sigma)
+plot(z1)
+```
+Montamos ahora el Gibbs para generar 1000 observaciones después de 500 de calentamiento.
+Reusamos el esqueleto de antes. Primero las funciones de actualización, luego 
+el muestreador y el ejemplo.
+```{r, eval=FALSE }
+x_update<-function()
+{ x1<-rnorm(1,mu[1]+rho*(x2-mu[2]),1-rho*rho)  }
+y_update<-function()
+{  x2<-rnorm(1,mu[2]+rho*(x1-mu[1]),1-rho*rho) } 
+```
+Ahora el muestreador (el mismo!!!)
+```{r, eval=FALSE }
+iter<-1500
+burnin<-500
+set.seed(1)
+x<-matrix(0,2,iter)
+x2<-rnorm(1,1,1)
+# Aquí comienza el muestreador
+for (i in 1:iter)
+{x1<-x_update()
+x[1,i]<-x1
+x2<-y_update()
+x[2,i]<-x2}
+# Aquí representamos 
+par(mfrow=c(1,2))
+plot(z1)
+plot(x[1,burnin:iter],x[2,burnin:iter])
+# Ojo!!!!
+acf(x[1,burnin:iter])
+```
+Ahora ya respondemos a preguntas formuladas
+```{r, eval=FALSE}
+mean(x[1,burnin:iter])
+mean(x[1,burnin:iter]*x[2,burnin:iter])
+sum((x[1,burnin:iter]>4)&(x[burnin:iter]<6))/(iter-burnin)
+sum(x[1,burnin:iter]>6)/(iter-burnin)
+```
+# Muestreo del modelo normal-gamma inversa
+Montamos ahora el Gibbs para este modelo.  
+Parámetros a priori
+```{r, eval=FALSE }
+mu0<-1.9
+ t20<-0.95^2
+s20<-.01
+ nu0<-1
+```
+Procesamos primero los datos
+```{r, eval=FALSE }
+y<-c(1.64,1.70,1.72,1.74,1.82,1.82,1.82,1.90,2.08)
+n<-length(y) 
+ mean.y<-mean(y) 
+ var.y<-var(y)
+```
+Inicialización de parámetros
+```{r, eval=FALSE }
+set.seed(1)
+iter<-1000
+PHI<-matrix(nrow=iter,ncol=2)
+PHI[1,]<-phi<-c( mean.y, 1/var.y)
+```
+Aquí mostramos el muestreador de Gibbs
+```{r, eval=FALSE }
+for(s in 2:iter) {
+# generamos nuevo theta de su condicionada 
+mun<-  ( mu0/t20 + n*mean.y*phi[2] ) / ( 1/t20 + n*phi[2] )
+t2n<- 1/( 1/t20 + n*phi[2] )
+phi[1]<-rnorm(1, mun, sqrt(t2n) )
+# generamos nuevo sigma^2 de su condicionada 
+nun<- nu0+n
+s2n<- (nu0*s20 + (n-1)*var.y + n*(mean.y-phi[1])^2 ) /nun
+phi[2]<- rgamma(1, nun/2, nun*s2n/2)
+# Acumulamos
+PHI[s,]<-phi 
+}
+```
+Aquí acaba el bucle del muestreador. Y procesamos resultados por
+ejemplo con los cuantiles de la distribución a posteriori.
+```{r, eval=FALSE }
+quantile(PHI[,1],c(.025,.5,.975))
+quantile(PHI[,2],c(.025,.5, .975))
+quantile(1/sqrt(PHI[,2]),c(.025,.5, .975))
+```
+Seguimos. Nos falta hacer aún diagnósticos y cosas 
+de análisis de resultados.... y otros algos de MCMC.
+
+
+
