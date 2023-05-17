@@ -9,4 +9,6 @@ This folder contains the material of **Chapter 3. Intro to MCMC. From Gibbs to H
   * BMLab31.Rmd
   * BMLab32.Rmd
   * BMLab33.Rmd
+
+* Data
   * sparrows.RData
